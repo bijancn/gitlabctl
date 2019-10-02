@@ -1,18 +1,10 @@
-extern crate gitlab;
-extern crate rayon;
-extern crate chrono;
-extern crate chrono_humanize;
-extern crate colored;
-extern crate clap;
-extern crate serde;
-extern crate dirs;
-use dirs::home_dir;
-use serde::{Deserialize};
-use clap::{Arg, App, SubCommand};
 use chrono::{DateTime, Utc};
 use chrono_humanize::HumanTime;
-use std::fs;
+use clap::{App, Arg, SubCommand};
 use colored::*;
+use dirs::home_dir;
+use serde::Deserialize;
+use std::fs;
 
 use gitlab::*;
 use rayon::prelude::*;
@@ -23,97 +15,134 @@ const EMPTY_PARAMS: &[(&str, &str)] = &[];
 #[derive(Deserialize)]
 struct Config {
     server: String,
-    access_token: String
+    access_token: String,
 }
 
 fn get_projects_for_namespace(gitlab: &Gitlab, namespace: &str) -> Vec<(String, ProjectId)> {
     let before = Instant::now();
     // There is no way to filter projects by namespace in the query parameters in v4
-    let result = gitlab.projects(EMPTY_PARAMS).unwrap_or_default()
+    let result = gitlab
+        .projects(EMPTY_PARAMS)
+        .unwrap_or_default()
         .par_iter()
-        .filter(|p| namespace.is_empty() || p.namespace.name.to_uppercase() == namespace.to_uppercase())
+        .filter(|p| {
+            namespace.is_empty() || p.namespace.name.to_uppercase() == namespace.to_uppercase()
+        })
         .map(|x| (x.name.to_owned(), x.id))
         .collect::<Vec<(String, ProjectId)>>();
-    println!("Retrieved {:} projects          [{:.2?}]", result.len(), before.elapsed());
+    println!(
+        "Retrieved {:} projects          [{:.2?}]",
+        result.len(),
+        before.elapsed()
+    );
     result
 }
 
-fn get_environments_of_project(gitlab: &Gitlab, project_name_and_id: &(String, ProjectId)) -> Vec<(String, ProjectId, Environment)> {
+fn get_environments_of_project(
+    gitlab: &Gitlab,
+    project_name_and_id: &(String, ProjectId),
+) -> Vec<(String, ProjectId, Environment)> {
     let ref name: String = project_name_and_id.0;
     let ref id: ProjectId = project_name_and_id.1;
-    gitlab.environments(*id, EMPTY_PARAMS).unwrap_or_default()
+    gitlab
+        .environments(*id, EMPTY_PARAMS)
+        .unwrap_or_default()
         .par_iter()
-        .map(move |e: &Environment| {
-            (name.to_owned(), id.to_owned(), e.to_owned())
-        })
+        .map(move |e: &Environment| (name.to_owned(), id.to_owned(), e.to_owned()))
         .collect()
 }
 
-fn get_all_environments(gitlab: &Gitlab, project_names: Vec<(String, ProjectId)>) -> Vec<Vec<(String, ProjectId, Environment)>> {
+fn get_all_environments(
+    gitlab: &Gitlab,
+    project_names: Vec<(String, ProjectId)>,
+) -> Vec<Vec<(String, ProjectId, Environment)>> {
     let before = Instant::now();
     let result: Vec<Vec<(String, ProjectId, Environment)>> = project_names
         .iter()
-        .map::<Vec<(String, ProjectId, Environment)>, _>( |x|
+        .map::<Vec<(String, ProjectId, Environment)>, _>(|x| {
             get_environments_of_project(&gitlab, x)
-        )
+        })
         .collect();
     let environments: usize = result.iter().map(|x| x.len()).sum();
-    println!("Retrieved {:} environments      [{:.2?}]", environments, before.elapsed());
+    println!(
+        "Retrieved {:} environments      [{:.2?}]",
+        environments,
+        before.elapsed()
+    );
     result
 }
 
-fn get_environment_details(gitlab: &Gitlab, all_envs: Vec<Vec<(String, ProjectId, Environment)>>) -> Vec<(String,(String, String, String, String, String))>{
+fn get_environment_details(
+    gitlab: &Gitlab,
+    all_envs: Vec<Vec<(String, ProjectId, Environment)>>,
+) -> Vec<(String, (String, String, String, String, String))> {
     let before = Instant::now();
-    let result: Vec<(String,(String, String, String, String, String))> = all_envs
+    let result: Vec<(String, (String, String, String, String, String))> = all_envs
         .iter()
-        .flat_map::<Vec<_>,_>(
-            |envs_of_project| {
-                let result: Vec<(String, String, String, String, String)> = envs_of_project.iter()
-                    .map(
-                        |(project_name, project_id, env): &(String, ProjectId, Environment)| {
-                            let env: Environment = gitlab
-                                .environment(project_id.to_owned(), env.id, EMPTY_PARAMS)
-                                .unwrap();
-                            let last_deployment: Option<Deployment> = env.last_deployment;
-                            let iid: String = last_deployment
-                                .to_owned()
-                                .map(|deployment| {
-                                    let username = deployment.user.username.to_string();
-                                    deployment.iid.to_string() + " by " + &(username)
-                                })
-                                .unwrap_or_default();
-                            let commit: String = last_deployment
-                                .to_owned()
-                                .and_then(|x: Deployment| x.deployable.commit.short_id)
-                                .unwrap_or_default();
-                            let now = Utc::now();
-                            let updated: String = last_deployment
-                                .to_owned()
-                                .map(|x| DateTime::parse_from_rfc3339(&x.created_at).unwrap())
-                                .map(|x| HumanTime::from(x.signed_duration_since(now)).to_string())
-                                .unwrap_or_default();
-                            (project_name.to_owned(), env.name, iid, commit, updated, last_deployment.to_owned())
-                        }
-                    ).filter(|x| !x.3.is_empty() //&& x.5.as_ref().and_then(|x| x.status.as_ref()).is_some()
+        .flat_map::<Vec<_>, _>(|envs_of_project| {
+            let result: Vec<(String, String, String, String, String)> = envs_of_project
+                .iter()
+                .map(
+                    |(project_name, project_id, env): &(String, ProjectId, Environment)| {
+                        let env: Environment = gitlab
+                            .environment(project_id.to_owned(), env.id, EMPTY_PARAMS)
+                            .unwrap();
+                        let last_deployment: Option<Deployment> = env.last_deployment;
+                        let iid: String = last_deployment
+                            .to_owned()
+                            .map(|deployment| {
+                                let username = deployment.user.username.to_string();
+                                deployment.iid.to_string() + " by " + &(username)
+                            })
+                            .unwrap_or_default();
+                        let commit: String = last_deployment
+                            .to_owned()
+                            .and_then(|x: Deployment| x.deployable.commit.short_id)
+                            .unwrap_or_default();
+                        let now = Utc::now();
+                        let updated: String = last_deployment
+                            .to_owned()
+                            .map(|x| DateTime::parse_from_rfc3339(&x.created_at).unwrap())
+                            .map(|x| HumanTime::from(x.signed_duration_since(now)).to_string())
+                            .unwrap_or_default();
+                        (
+                            project_name.to_owned(),
+                            env.name,
+                            iid,
+                            commit,
+                            updated,
+                            last_deployment.to_owned(),
+                        )
+                    },
                 )
-                    .map(|x| (x.0, x.1, x.2, x.3, x.4))
-                    .collect();
-                let mut commits: Vec<String> = (result).iter().map(|x| x.3.to_owned()).collect();
-                commits.dedup();
-                if commits.len() == 1 {
-                    result.iter().map(|r|(String::from("green"), r.to_owned())).collect()
-                } else {
-                    result.iter().map(|r|(String::from("red"), r.to_owned())).collect()
-                }
+                .filter(
+                    |x| !x.3.is_empty(), //&& x.5.as_ref().and_then(|x| x.status.as_ref()).is_some()
+                )
+                .map(|x| (x.0, x.1, x.2, x.3, x.4))
+                .collect();
+            let mut commits: Vec<String> = (result).iter().map(|x| x.3.to_owned()).collect();
+            commits.dedup();
+            if commits.len() == 1 {
+                result
+                    .iter()
+                    .map(|r| (String::from("green"), r.to_owned()))
+                    .collect()
+            } else {
+                result
+                    .iter()
+                    .map(|r| (String::from("red"), r.to_owned()))
+                    .collect()
             }
-        )
+        })
         .collect();
     println!("Retrieved environments details [{:.2?}]", before.elapsed());
     result
 }
 
 fn get_config() -> Config {
-    let config_path = home_dir().expect("Could not find home dir").join(".config/gitlab.toml");
+    let config_path = home_dir()
+        .expect("Could not find home dir")
+        .join(".config/gitlab.toml");
     let config_string = fs::read_to_string(&config_path)
         .expect(format!("Something went wrong reading the file {:?}", &config_path).as_str());
     toml::from_str(&config_string).expect("Could not parse the config")
@@ -126,18 +155,20 @@ fn main() {
         .about("gitlabctl controls gitlab from the command line")
         .subcommand(
             SubCommand::with_name("get")
-            .about("get resources from gitlab")
-            .arg(Arg::with_name("resource")
-                .help("The resource to get, e.g. environment.")
-                .required(true)
-                .index(1)
-            )
-            .arg(Arg::with_name("namespace")
-                .short("n")
-                .long("namespace")
-                .help("Filters the resources to the given namespace/group.")
-                .takes_value(true)
-            )
+                .about("get resources from gitlab")
+                .arg(
+                    Arg::with_name("resource")
+                        .help("The resource to get, e.g. environment.")
+                        .required(true)
+                        .index(1),
+                )
+                .arg(
+                    Arg::with_name("namespace")
+                        .short("n")
+                        .long("namespace")
+                        .help("Filters the resources to the given namespace/group.")
+                        .takes_value(true),
+                ),
         )
         .get_matches();
     if let Some(matches) = matches.subcommand_matches("get") {
