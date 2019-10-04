@@ -2,9 +2,6 @@ use chrono::{DateTime, Utc};
 use chrono_humanize::HumanTime;
 use clap::{App, Arg, SubCommand};
 use colored::*;
-use dirs::home_dir;
-use serde::Deserialize;
-use std::fs;
 
 use gitlab::*;
 use rayon::prelude::*;
@@ -12,11 +9,8 @@ use std::time::Instant;
 
 const EMPTY_PARAMS: &[(&str, &str)] = &[];
 
-#[derive(Deserialize)]
-struct Config {
-    server: String,
-    access_token: String,
-}
+mod config;
+use config::Config;
 
 fn get_projects_for_namespace(gitlab: &Gitlab, namespace: &str) -> Vec<(String, ProjectId)> {
     let before = Instant::now();
@@ -139,15 +133,6 @@ fn get_environment_details(
     result
 }
 
-fn get_config() -> Config {
-    let config_path = home_dir()
-        .expect("Could not find home dir")
-        .join(".config/gitlab.toml");
-    let config_string = fs::read_to_string(&config_path)
-        .expect(format!("Something went wrong reading the file {:?}", &config_path).as_str());
-    toml::from_str(&config_string).expect("Could not parse the config")
-}
-
 fn main() {
     let matches = App::new("gitlabctl")
         .version("0.1")
@@ -173,8 +158,8 @@ fn main() {
         .get_matches();
     if let Some(matches) = matches.subcommand_matches("get") {
         let namespace = matches.value_of("namespace").unwrap_or("");
-        let config = get_config();
-        let _ = Gitlab::new(config.server, config.access_token)
+        let config = Config::parse_from_disk();
+        let _ = Gitlab::new(config.server(), config.access_token())
             .map_err(|err| {
                 println!("err {}", err);
                 err
