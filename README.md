@@ -19,3 +19,11 @@ my-service-b                prod         136 by bar           3c096e4b  a week a
 with the possiblity to filter for a namspace/group (and featuring colors ;)). The vision is to have a tool that allows to manipulate the Gitlab REST API as easily as `kubectl` does it for the Kubernetes API.
 
 While the Gitlab UI is great for many things, some things are simply not there although they are available in the API. `gitlabctl` allows us to fill that gap and might also grow to become more convenient than clicking through the UI.
+
+## Configuration
+To run `gitlabctl`, you need to have a `~/.config/gitlab.toml` with contents like this
+```
+server = "gitlab.com"
+access_token = "alskdfj0129384alskdf"
+```
+To generate the access token, you can follow [these instructions](https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html). It should work with any public or private Gitlab installation as well as gitlab.com itself. **Caveat**: It's extremely slow on gitlab.com as it first has to get the list of *all* projects.
