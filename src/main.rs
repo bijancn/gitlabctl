@@ -159,7 +159,7 @@ fn main() {
     if let Some(matches) = matches.subcommand_matches("get") {
         let namespace = matches.value_of("namespace").unwrap_or("");
         let config = Config::parse_from_disk();
-        let _ = Gitlab::new(config.server(), config.access_token())
+        let _ = Gitlab::new(&config.server, &config.access_token)
             .map_err(|err| {
                 println!("err {}", err);
                 err
