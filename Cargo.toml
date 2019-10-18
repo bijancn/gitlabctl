@@ -14,6 +14,7 @@ futures-util-preview = "=0.3.0-alpha.19"
 clap = "2.33.0"
 dirs = "2.0.2"
 toml = "0.4.2"
+itertools = "0.8.0"
 
 colored = "1.8"
 chrono-humanize = "0.0.11"
