@@ -46,8 +46,8 @@ async fn get_environments_of_project(
     gitlab: &Gitlab,
     project_name_and_id: &(String, ProjectId),
 ) -> Vec<(String, ProjectId, Environment)> {
-    let ref name: String = project_name_and_id.0;
-    let ref id: ProjectId = project_name_and_id.1;
+    let name: &String = &project_name_and_id.0;
+    let id: &ProjectId = &project_name_and_id.1;
     gitlab
         .environments(*id, EMPTY_PARAMS)
         .unwrap_or_default()
@@ -77,12 +77,12 @@ async fn get_all_environments(
 
 async fn build_environment_row(
     gitlab: &Gitlab,
-    project_name: &String,
-    project_id: &ProjectId,
+    project_name: &str,
+    project_id: ProjectId,
     env: &Environment,
 ) -> Result<EnvironmentRow> {
     let env: Environment = gitlab
-        .environment(project_id.to_owned(), env.id, EMPTY_PARAMS)
+        .environment(project_id, env.id, EMPTY_PARAMS)
         .unwrap();
     let last_deployment: Option<Deployment> = env.last_deployment;
     let iid: String = last_deployment
@@ -107,11 +107,11 @@ async fn build_environment_row(
         environment_name: env.name,
         deployment_by: iid,
         commit_sha: commit,
-        updated: updated,
+        updated,
     })
 }
 
-fn all_the_same(results: &Vec<EnvironmentRow>) -> bool {
+fn all_the_same(results: &[EnvironmentRow]) -> bool {
     let mut commits: Vec<String> = results.iter().map(|x| x.commit_sha.clone()).collect();
     commits.dedup();
     commits.len() == 1
@@ -126,7 +126,7 @@ async fn get_environment_details(
     join_all(all_envs.iter().flat_map::<Vec<_>, _>(|envs_of_project| {
         envs_of_project
             .iter()
-            .map(|x| build_environment_row(gitlab, &x.0, &x.1, &x.2))
+            .map(|x| build_environment_row(gitlab, &x.0, x.1, &x.2))
             .collect()
     }))
     .inspect(|_| println!("Retrieved environments details [{:.2?}]", before.elapsed()))
@@ -173,7 +173,8 @@ async fn main() -> Result<()> {
             .collect();
         // Early return if there is nothing to show
         if results.is_empty() {
-            return Ok(println!("There is nothing to show"));
+            println!("There is nothing to show");
+            return Ok(());
         }
 
         // Show results otherwise
@@ -226,7 +227,7 @@ async fn main() -> Result<()> {
             .into_iter()
             .map(|(_, group)| group.cloned().collect())
             .collect::<Vec<Vec<EnvironmentRow>>>();
-        Ok(for group in groups {
+        for group in groups {
             let color = if all_the_same(&group) { "green" } else { "red" };
             group.into_iter().for_each(|r| {
                     println!(
@@ -243,10 +244,11 @@ async fn main() -> Result<()> {
                         longest_updated = longest_updated
                     )
                 })
-        })
+        }
     } else {
-        Ok(println!("Why don't you try the get command?"))
-    }
+        println!("Why don't you try the get command?")
+    };
+    Ok(())
 }
 
 #[cfg(test)]

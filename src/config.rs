@@ -14,7 +14,7 @@ impl Config {
             .expect("Could not find home dir")
             .join(".config/gitlab.toml");
         let config_string = fs::read_to_string(&config_path)
-            .expect(format!("Something went wrong reading the file {:?}", &config_path).as_str());
+            .unwrap_or_else(|_| panic!("Something went wrong reading the file {:?}", &config_path));
 
         toml::from_str(&config_string).expect("Could not parse the config")
     }

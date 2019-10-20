@@ -87,7 +87,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macOS-latest, windows-latest]
-        rust: [stable, nightly]
+        rust: [beta, nightly]
     steps:
       # Checkout the branch being tested
       - uses: actions/checkout@v1
