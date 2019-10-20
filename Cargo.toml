@@ -5,7 +5,7 @@ authors = ["Bijan Chokoufe Nejad <bijan.nejad@numberfour.eu>"]
 edition = "2018"
 
 [dependencies]
-gitlab = { git = "https://gitlab.com/bijan.chokoufe/rust-gitlab.git", branch = "changes-manual" }
+gitlab = { git = "https://gitlab.kitware.com/bijan.chokoufe/rust-gitlab.git", branch = "changes-manual" }
 tokio = "=0.2.0-alpha.6"
 futures-core-preview = "=0.3.0-alpha.19"
 futures-util-preview = "=0.3.0-alpha.19"
