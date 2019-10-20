@@ -111,13 +111,10 @@ async fn build_environment_row(
     })
 }
 
-fn no_duplicates(results: &Vec<EnvironmentRow>) -> bool {
-    let length = {
-        let mut commits: Vec<String> = results.iter().map(|x| x.commit_sha.clone()).collect();
-        commits.dedup();
-        commits.len()
-    };
-    !length == results.len()
+fn all_the_same(results: &Vec<EnvironmentRow>) -> bool {
+    let mut commits: Vec<String> = results.iter().map(|x| x.commit_sha.clone()).collect();
+    commits.dedup();
+    commits.len() == 1
 }
 
 async fn get_environment_details(
@@ -230,11 +227,7 @@ async fn main() -> Result<()> {
             .map(|(_, group)| group.cloned().collect())
             .collect::<Vec<Vec<EnvironmentRow>>>();
         Ok(for group in groups {
-            let color = if no_duplicates(&group) {
-                "green"
-            } else {
-                "red"
-            };
+            let color = if all_the_same(&group) { "green" } else { "red" };
             group.into_iter().for_each(|r| {
                     println!(
                         "{:longest_project$}  {:longest_env$}  {:longest_depl$}  {:longest_commit$}  {:longest_updated$}",
@@ -253,5 +246,46 @@ async fn main() -> Result<()> {
         })
     } else {
         Ok(println!("Why don't you try the get command?"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn single_elem_vec() -> Vec<EnvironmentRow> {
+        vec![EnvironmentRow {
+            project_name: "project".to_string(),
+            environment_name: "env".to_string(),
+            deployment_by: "deployed by someone".to_string(),
+            commit_sha: "asdflkj".to_string(),
+            updated: "some time ago".to_string(),
+        }]
+    }
+
+    #[test]
+    fn test_single_elem() {
+        assert!(all_the_same(&single_elem_vec()));
+    }
+
+    #[test]
+    fn test_duplicates() {
+        assert!(all_the_same(
+            &[single_elem_vec(), single_elem_vec()].concat()
+        ));
+    }
+
+    #[test]
+    fn test_differences() {
+        assert!(!all_the_same(
+            &[
+                vec![EnvironmentRow {
+                    commit_sha: "fooo".to_string(),
+                    ..single_elem_vec().first().unwrap().to_owned()
+                }],
+                single_elem_vec()
+            ]
+            .concat()
+        ));
     }
 }

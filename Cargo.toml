@@ -4,10 +4,8 @@ version = "0.1.0"
 authors = ["Bijan Chokoufe Nejad <bijan.nejad@numberfour.eu>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
-gitlab = { git = "https://gitlab.com/bijan.chokoufe/rust-gitlab.git", branch = "add-environments" }
+gitlab = { git = "https://gitlab.com/bijan.chokoufe/rust-gitlab.git", branch = "changes-manual" }
 tokio = "=0.2.0-alpha.6"
 futures-core-preview = "=0.3.0-alpha.19"
 futures-util-preview = "=0.3.0-alpha.19"

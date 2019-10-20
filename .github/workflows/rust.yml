@@ -9,14 +9,14 @@ jobs:
     steps:
       - uses: actions/checkout@v1
       - name: Build
-        run: cargo build --verbose
+        run: cargo +beta build --verbose
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo +beta test --verbose
       - name: Check formating
         run: |
           rustup component add rustfmt
-          cargo fmt --all -- --check
+          cargo +beta fmt --all -- --check
       - name: Check code issues
         run: |
           rustup component add clippy
-          cargo clippy --all -- -D warnings
+          cargo +beta clippy --all -- -D warnings
