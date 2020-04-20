@@ -163,11 +163,12 @@ async fn main() -> Result<(),String> {
         let namespace = matches.value_of("namespace").unwrap_or_default();
         let config = Config::parse_from_disk();
         println!("about to start");
-        let gitlab_fut = async {
-            Gitlab::new(config.server, config.access_token).map_err(|_err| "Could not connect")
-        };
+        let gitlab_fut = tokio::task::spawn_blocking(|| {
+            Gitlab::new(config.server, config.access_token).map_err(|gitlab_err| format!("{:?}", gitlab_err))
+        });
         println!("future defined");
-        let gitlab = gitlab_fut.await?;
+        let gitlab_maybe = gitlab_fut.await.map_err(|_| "Could not connect")?;
+        let gitlab = gitlab_maybe?;
         println!("future awaited");
         let results = get_projects_for_namespace(&gitlab, namespace)
             .then(|project_names| get_all_environments(&gitlab, project_names))
