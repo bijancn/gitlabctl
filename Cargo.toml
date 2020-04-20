@@ -9,6 +9,7 @@ gitlab = { git = "https://gitlab.kitware.com/utils/rust-gitlab", branch = "maste
 tokio = {version = "0.2", features = ["full"]}
 #futures-core-preview = "=0.3.0-alpha.19"
 #futures-util-preview = "=0.3.0-alpha.19"
+futures = "0.3"
 proc-macro2 = "1.0.10"
 clap = "2.33.0"
 dirs = "2.0.2"

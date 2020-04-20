@@ -1,3 +1,4 @@
+use futures::future::*;
 use chrono::{DateTime, Utc};
 use chrono_humanize::HumanTime;
 use clap::{App, Arg, SubCommand};
@@ -63,7 +64,7 @@ async fn get_all_environments(
     let results = project_names
         .iter()
         .map(|name| get_environments_of_project(&gitlab, name));
-    tokio::join!(results)
+    join_all(results)
         .inspect(|e| {
             println!(
                 "Retrieved {:} environments      [{:.2?}]",
@@ -79,7 +80,7 @@ async fn build_environment_row(
     project_name: &str,
     project_id: ProjectId,
     env: &Environment,
-) -> Result<EnvironmentRow> {
+) -> Result<EnvironmentRow, String> {
     let env: Environment = gitlab
         .environment(project_id, env.id, EMPTY_PARAMS)
         .unwrap();
@@ -119,7 +120,7 @@ fn all_the_same(results: &[EnvironmentRow]) -> bool {
 async fn get_environment_details(
     gitlab: &Gitlab,
     all_envs: Vec<Vec<(String, ProjectId, Environment)>>,
-) -> Result<Vec<EnvironmentRow>> {
+) -> Result<Vec<EnvironmentRow>,String> {
     let before = Instant::now();
 
     join_all(all_envs.iter().flat_map::<Vec<_>, _>(|envs_of_project| {
@@ -135,7 +136,7 @@ async fn get_environment_details(
 }
 
 #[tokio::main]
-async fn main() -> Result<()> {
+async fn main() -> Result<(),String> {
     let matches = App::new("gitlabctl")
         .version("0.1")
         .author("Bijan Chokoufe Nejad <bijan@chokoufe.com>")
@@ -161,7 +162,13 @@ async fn main() -> Result<()> {
     if let Some(matches) = matches.subcommand_matches("get") {
         let namespace = matches.value_of("namespace").unwrap_or_default();
         let config = Config::parse_from_disk();
-        let gitlab = Gitlab::new(config.server, config.access_token)?;
+        println!("about to start");
+        let gitlab_fut = async {
+            Gitlab::new(config.server, config.access_token).map_err(|_err| "Could not connect")
+        };
+        println!("future defined");
+        let gitlab = gitlab_fut.await?;
+        println!("future awaited");
         let results = get_projects_for_namespace(&gitlab, namespace)
             .then(|project_names| get_all_environments(&gitlab, project_names))
             .then(|all_envs| get_environment_details(&gitlab, all_envs))
