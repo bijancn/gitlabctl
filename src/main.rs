@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use chrono_humanize::HumanTime;
 use clap::{App, Arg, SubCommand};
 use colored::*;
-use futures_util::future::*;
 use itertools::Itertools;
 
 use gitlab::*;
@@ -64,7 +63,7 @@ async fn get_all_environments(
     let results = project_names
         .iter()
         .map(|name| get_environments_of_project(&gitlab, name));
-    join_all(results)
+    tokio::join!(results)
         .inspect(|e| {
             println!(
                 "Retrieved {:} environments      [{:.2?}]",
