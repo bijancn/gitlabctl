@@ -1,13 +1,14 @@
-use futures::future::*;
 use chrono::{DateTime, Utc};
 use chrono_humanize::HumanTime;
 use clap::{App, Arg, SubCommand};
 use colored::*;
+use futures::future::*;
 use itertools::Itertools;
+use std::sync::Arc;
+use tokio::task;
 
 use gitlab::*;
 use std::time::Instant;
-
 const EMPTY_PARAMS: &[(&str, &str)] = &[];
 
 mod config;
@@ -22,20 +23,26 @@ pub struct EnvironmentRow {
     pub updated: String,
 }
 
-async fn get_projects_for_namespace(gitlab: &Gitlab, namespace: &str) -> Vec<(String, ProjectId)> {
+async fn get_projects_for_namespace(
+    glh: Arc<Gitlab>,
+    namespace: String,
+) -> Vec<(String, ProjectId)> {
+    let ns = namespace.clone();
     let before = Instant::now();
     // There is no way to filter projects by namespace in the query parameters in v4
-    let result = gitlab
-        .projects(EMPTY_PARAMS)
-        .unwrap_or_default()
-        .iter()
-        .filter(|p| {
-            namespace.is_empty() || p.namespace.name.to_uppercase() == namespace.to_uppercase()
-        })
-        .map(|x| (x.name.to_owned(), x.id))
-        .collect::<Vec<(String, ProjectId)>>();
+    let result = task::spawn_blocking(move || {
+        glh.projects(EMPTY_PARAMS)
+            .unwrap_or_default()
+            .iter()
+            .filter(|p| ns.is_empty() || p.namespace.name.to_uppercase() == ns.to_uppercase())
+            .map(|x| (x.name.to_owned(), x.id))
+            .collect::<Vec<(String, ProjectId)>>()
+    })
+    .await
+    .expect("Could not get projects");
+
     println!(
-        "Retrieved {:} projects          [{:.2?}]",
+        "Obtained {:} projects   [{:.2?}]",
         result.len(),
         before.elapsed()
     );
@@ -43,31 +50,43 @@ async fn get_projects_for_namespace(gitlab: &Gitlab, namespace: &str) -> Vec<(St
 }
 
 async fn get_environments_of_project(
-    gitlab: &Gitlab,
-    project_name_and_id: &(String, ProjectId),
+    gitlab: Arc<Gitlab>,
+    project_name_and_id: (String, ProjectId),
 ) -> Vec<(String, ProjectId, Environment)> {
-    let name: &String = &project_name_and_id.0;
-    let id: &ProjectId = &project_name_and_id.1;
-    gitlab
-        .environments(*id, EMPTY_PARAMS)
-        .unwrap_or_default()
-        .iter()
-        .map(move |e: &Environment| (name.to_owned(), id.to_owned(), e.to_owned()))
-        .collect()
+    let name: String = project_name_and_id.0;
+    let id: ProjectId = project_name_and_id.1;
+    task::spawn_blocking(move || {
+        gitlab
+            .environments(id, EMPTY_PARAMS)
+            .unwrap_or_default()
+            .iter()
+            .map(move |e: &Environment| (name.to_owned(), id.to_owned(), e.to_owned()))
+            .collect()
+    })
+    .await
+    .expect("Unable to get environment for project")
 }
 
 async fn get_all_environments(
-    gitlab: &Gitlab,
+    gitlab: Arc<Gitlab>,
     project_names: Vec<(String, ProjectId)>,
 ) -> Vec<Vec<(String, ProjectId, Environment)>> {
     let before = Instant::now();
-    let results = project_names
-        .iter()
-        .map(|name| get_environments_of_project(&gitlab, name));
-    join_all(results)
+    let mut r = vec![];
+
+    for name in project_names {
+        let handle = gitlab.clone();
+        let task = task::spawn_blocking(move || get_environments_of_project(handle, name))
+            .then(|x| x.expect("Project search task failed."));
+        r.push(task);
+    }
+
+    let result = join_all(r);
+
+    result
         .inspect(|e| {
             println!(
-                "Retrieved {:} environments      [{:.2?}]",
+                "Retrieved {:} environments  [{:.2?}]",
                 e.iter().map(|x| x.len()).sum::<usize>(),
                 before.elapsed()
             )
@@ -76,14 +95,19 @@ async fn get_all_environments(
 }
 
 async fn build_environment_row(
-    gitlab: &Gitlab,
-    project_name: &str,
+    gitlab: Arc<Gitlab>,
+    project_name: String,
     project_id: ProjectId,
-    env: &Environment,
+    env: Environment,
 ) -> Result<EnvironmentRow, String> {
-    let env: Environment = gitlab
-        .environment(project_id, env.id, EMPTY_PARAMS)
-        .unwrap();
+    let env: Environment = task::spawn_blocking(move || {
+        gitlab
+            .environment(project_id, env.id, EMPTY_PARAMS)
+            .expect("Failed to fetch environment")
+    })
+    .await
+    .expect("Failed to run task to fetch environment");
+
     let last_deployment: Option<Deployment> = env.last_deployment;
     let iid: String = last_deployment
         .to_owned()
@@ -98,7 +122,6 @@ async fn build_environment_row(
         .unwrap_or_default();
     let now = Utc::now();
     let updated: String = last_deployment
-        .to_owned()
         .map(|x| DateTime::parse_from_rfc3339(&x.created_at).unwrap())
         .map(|x| HumanTime::from(x.signed_duration_since(now)).to_string())
         .unwrap_or_default();
@@ -118,25 +141,31 @@ fn all_the_same(results: &[EnvironmentRow]) -> bool {
 }
 
 async fn get_environment_details(
-    gitlab: &Gitlab,
+    gitlab: Arc<Gitlab>,
     all_envs: Vec<Vec<(String, ProjectId, Environment)>>,
-) -> Result<Vec<EnvironmentRow>,String> {
+) -> Result<Vec<EnvironmentRow>, String> {
     let before = Instant::now();
+    let mut r = vec![];
 
-    join_all(all_envs.iter().flat_map::<Vec<_>, _>(|envs_of_project| {
-        envs_of_project
-            .iter()
-            .map(|x| build_environment_row(gitlab, &x.0, x.1, &x.2))
-            .collect()
-    }))
-    .inspect(|_| println!("Retrieved environments details [{:.2?}]", before.elapsed()))
-    .await
-    .into_iter()
-    .collect()
+    for env_of_project in all_envs {
+        for env in env_of_project {
+            let handle = gitlab.clone();
+            let task =
+                task::spawn_blocking(move || build_environment_row(handle, env.0, env.1, env.2))
+                    .then(|x| x.expect("Something"));
+            r.push(task);
+        }
+    }
+
+    join_all(r)
+        .inspect(|_| println!("Retrieved environments details [{:2?}]", before.elapsed()))
+        .await
+        .into_iter()
+        .collect()
 }
 
 #[tokio::main]
-async fn main() -> Result<(),String> {
+async fn main() -> Result<(), String> {
     let matches = App::new("gitlabctl")
         .version("0.1")
         .author("Bijan Chokoufe Nejad <bijan@chokoufe.com>")
@@ -163,17 +192,17 @@ async fn main() -> Result<(),String> {
         let namespace = matches.value_of("namespace").unwrap_or_default();
         let config = Config::parse_from_disk();
         println!("about to start");
-        let gitlab_fut = tokio::task::spawn_blocking(|| {
-            Gitlab::new(config.server, config.access_token).map_err(|gitlab_err| format!("{:?}", gitlab_err))
+
+        let gitlab_fut = task::spawn_blocking(|| {
+            Gitlab::new(config.server, config.access_token)
+                .map_err(|gitlab_err| format!("{:?}", gitlab_err))
         });
-        println!("future defined");
         let gitlab_maybe = gitlab_fut.await.map_err(|_| "Could not connect")?;
-        let gitlab = gitlab_maybe?;
-        println!("future awaited");
-        let results = get_projects_for_namespace(&gitlab, namespace)
-            .then(|project_names| get_all_environments(&gitlab, project_names))
-            .then(|all_envs| get_environment_details(&gitlab, all_envs))
-            .await?;
+        let gitlab = Arc::new(gitlab_maybe?);
+        let project_names = get_projects_for_namespace(gitlab.clone(), namespace.to_owned()).await;
+        let all_envs = get_all_environments(gitlab.clone(), project_names).await;
+        let results = get_environment_details(gitlab.clone(), all_envs).await?;
+
         let results: Vec<&EnvironmentRow> = results
             .iter()
             .filter(|x| !x.commit_sha.is_empty())
