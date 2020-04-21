@@ -4,8 +4,8 @@ use clap::{App, Arg, SubCommand};
 use colored::*;
 use futures::future::*;
 use itertools::Itertools;
-use tokio::task;
 use std::sync::Arc;
+use tokio::task;
 
 use gitlab::*;
 use std::time::Instant;
@@ -31,8 +31,7 @@ async fn get_projects_for_namespace(
     let before = Instant::now();
     // There is no way to filter projects by namespace in the query parameters in v4
     let result = task::spawn_blocking(move || {
-        glh
-            .projects(EMPTY_PARAMS)
+        glh.projects(EMPTY_PARAMS)
             .unwrap_or_default()
             .iter()
             .filter(|p| ns.is_empty() || p.namespace.name.to_uppercase() == ns.to_uppercase())
@@ -42,7 +41,11 @@ async fn get_projects_for_namespace(
     .await
     .expect("Could not get projects");
 
-    println!("Obtained {:} projects   [{:.2?}]", result.len(), before.elapsed());
+    println!(
+        "Obtained {:} projects   [{:.2?}]",
+        result.len(),
+        before.elapsed()
+    );
     result
 }
 
@@ -59,7 +62,8 @@ async fn get_environments_of_project(
             .iter()
             .map(move |e: &Environment| (name.to_owned(), id.to_owned(), e.to_owned()))
             .collect()
-    }).await
+    })
+    .await
     .expect("Unable to get environment for project")
 }
 
@@ -72,17 +76,22 @@ async fn get_all_environments(
 
     for name in project_names {
         let handle = gitlab.clone();
-        let task = task::spawn_blocking(move || {
-            get_environments_of_project(handle, name)
-        }).then(|x| x.expect("Project search task failed."));
+        let task = task::spawn_blocking(move || get_environments_of_project(handle, name))
+            .then(|x| x.expect("Project search task failed."));
         r.push(task);
     }
 
     let result = join_all(r);
 
-    result.inspect(|e| {
-        println!("Retrieved {:} environments  [{:.2?}]", e.iter().map(|x| x.len()).sum::<usize>(), before.elapsed())
-    }).await
+    result
+        .inspect(|e| {
+            println!(
+                "Retrieved {:} environments  [{:.2?}]",
+                e.iter().map(|x| x.len()).sum::<usize>(),
+                before.elapsed()
+            )
+        })
+        .await
 }
 
 async fn build_environment_row(
@@ -92,9 +101,12 @@ async fn build_environment_row(
     env: Environment,
 ) -> Result<EnvironmentRow, String> {
     let env: Environment = task::spawn_blocking(move || {
-        gitlab.environment(project_id, env.id, EMPTY_PARAMS)
+        gitlab
+            .environment(project_id, env.id, EMPTY_PARAMS)
             .expect("Failed to fetch environment")
-    }).await.expect("Failed to run task to fetch environment");
+    })
+    .await
+    .expect("Failed to run task to fetch environment");
 
     let last_deployment: Option<Deployment> = env.last_deployment;
     let iid: String = last_deployment
@@ -110,7 +122,6 @@ async fn build_environment_row(
         .unwrap_or_default();
     let now = Utc::now();
     let updated: String = last_deployment
-        .to_owned()
         .map(|x| DateTime::parse_from_rfc3339(&x.created_at).unwrap())
         .map(|x| HumanTime::from(x.signed_duration_since(now)).to_string())
         .unwrap_or_default();
@@ -139,15 +150,18 @@ async fn get_environment_details(
     for env_of_project in all_envs {
         for env in env_of_project {
             let handle = gitlab.clone();
-            let task = task::spawn_blocking(move || {
-                build_environment_row(handle, env.0, env.1, env.2)
-            }).then(|x| x.expect("Something"));
+            let task =
+                task::spawn_blocking(move || build_environment_row(handle, env.0, env.1, env.2))
+                    .then(|x| x.expect("Something"));
             r.push(task);
         }
     }
 
-    join_all(r).inspect(|_| println!("Retrieved environments details [{:2?}]", before.elapsed()))
-        .await.into_iter().collect()
+    join_all(r)
+        .inspect(|_| println!("Retrieved environments details [{:2?}]", before.elapsed()))
+        .await
+        .into_iter()
+        .collect()
 }
 
 #[tokio::main]
