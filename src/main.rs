@@ -178,6 +178,7 @@ async fn main() -> Result<(), String> {
         let namespace = matches.value_of("namespace").unwrap_or_default();
         let config = Config::parse_from_disk();
         println!("about to start");
+
         let gitlab_fut = task::spawn_blocking(|| {
             Gitlab::new(config.server, config.access_token)
                 .map_err(|gitlab_err| format!("{:?}", gitlab_err))
@@ -187,6 +188,7 @@ async fn main() -> Result<(), String> {
         let project_names = get_projects_for_namespace(gitlab.clone(), namespace.to_owned()).await;
         let all_envs = get_all_environments(gitlab.clone(), project_names).await;
         let results = get_environment_details(gitlab.clone(), all_envs).await?;
+
         let results: Vec<&EnvironmentRow> = results
             .iter()
             .filter(|x| !x.commit_sha.is_empty())
