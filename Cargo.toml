@@ -6,7 +6,7 @@ edition = "2018"
 
 [dependencies]
 gitlab = { git = "https://gitlab.kitware.com/utils/rust-gitlab", branch = "master" }
-tokio = {version = "0.2", features = ["full"]}
+tokio = {version = "1.8", features = ["full"]}
 #futures-core-preview = "=0.3.0-alpha.19"
 #futures-util-preview = "=0.3.0-alpha.19"
 futures = "0.3"
